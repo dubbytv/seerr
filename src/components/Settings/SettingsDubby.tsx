@@ -1,0 +1,538 @@
+import Badge from '@app/components/Common/Badge';
+import Button from '@app/components/Common/Button';
+import LoadingSpinner from '@app/components/Common/LoadingSpinner';
+import SensitiveInput from '@app/components/Common/SensitiveInput';
+import LibraryItem from '@app/components/Settings/LibraryItem';
+import globalMessages from '@app/i18n/globalMessages';
+import defineMessages from '@app/utils/defineMessages';
+import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
+import type { DubbySettings } from '@server/lib/settings';
+import axios from 'axios';
+import { Field, Formik } from 'formik';
+import { useState } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import * as Yup from 'yup';
+
+const messages = defineMessages('components.Settings', {
+  dubbysettings: 'Dubby Settings',
+  dubbysettingsDescription:
+    'Configure the settings for your Dubby server. Seerr scans your Dubby libraries to see what content is available.',
+  dubbylibraries: 'Dubby Libraries',
+  dubbylibrariesDescription:
+    'The libraries Seerr scans for titles. Click the button below if no libraries are listed.',
+  dubbySettingsFailure: 'Something went wrong while saving Dubby settings.',
+  dubbySettingsSuccess: 'Dubby settings saved successfully!',
+  dubbySettingsDescription:
+    'Configure the hostname, port, and API key for your Dubby server.',
+  hostname: 'Hostname or IP Address',
+  port: 'Port',
+  enablessl: 'Use SSL',
+  urlBase: 'URL Base',
+  apiKey: 'API Key',
+  dubbySyncFailedGenericError:
+    'Something went wrong while syncing libraries',
+  invalidurlerror: 'Unable to connect to Dubby server.',
+  syncing: 'Syncing',
+  syncDubby: 'Sync Libraries',
+  manualscanDubby: 'Manual Library Scan',
+  manualscanDescriptionDubby:
+    "Normally, this will only be run once every 24 hours. Seerr will check your Dubby server's recently added more aggressively. If this is your first time configuring Seerr, a one-time full manual library scan is recommended!",
+  notrunning: 'Not Running',
+  currentlibrary: 'Current Library: {name}',
+  librariesRemaining: 'Libraries Remaining: {count}',
+  startscan: 'Start Scan',
+  cancelscan: 'Cancel Scan',
+  validationHostnameRequired: 'You must provide a valid hostname or IP address',
+  validationPortRequired: 'You must provide a valid port number',
+  validationUrlBaseLeadingSlash: 'URL base must have a leading slash',
+  validationUrlBaseTrailingSlash: 'URL base must not end in a trailing slash',
+  tip: 'Tip',
+  scanbackground:
+    'Scanning will run in the background. You can continue the setup process in the meantime.',
+});
+
+interface Library {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
+interface SyncStatus {
+  running: boolean;
+  progress: number;
+  total: number;
+  currentLibrary?: Library;
+  libraries: Library[];
+}
+
+interface SettingsDubbyProps {
+  isSetupSettings?: boolean;
+  onComplete?: () => void;
+}
+
+const SettingsDubby: React.FC<SettingsDubbyProps> = ({
+  onComplete,
+  isSetupSettings,
+}) => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const toasts = useToasts();
+
+  const {
+    data,
+    error,
+    mutate: revalidate,
+  } = useSWR<DubbySettings>('/api/v1/settings/dubby');
+  const { data: dataSync, mutate: revalidateSync } = useSWR<SyncStatus>(
+    '/api/v1/settings/dubby/sync',
+    {
+      refreshInterval: 1000,
+    }
+  );
+  const intl = useIntl();
+  const { addToast } = useToasts();
+
+  const DubbySettingsSchema = Yup.object().shape({
+    hostname: Yup.string()
+      .nullable()
+      .required(intl.formatMessage(messages.validationHostnameRequired)),
+    port: Yup.number().when(['hostname'], {
+      is: (value: unknown) => !!value,
+      then: Yup.number()
+        .typeError(intl.formatMessage(messages.validationPortRequired))
+        .nullable()
+        .required(intl.formatMessage(messages.validationPortRequired)),
+      otherwise: Yup.number()
+        .typeError(intl.formatMessage(messages.validationPortRequired))
+        .nullable(),
+    }),
+    urlBase: Yup.string()
+      .test(
+        'leading-slash',
+        intl.formatMessage(messages.validationUrlBaseLeadingSlash),
+        (value) => !value || value.startsWith('/')
+      )
+      .test(
+        'trailing-slash',
+        intl.formatMessage(messages.validationUrlBaseTrailingSlash),
+        (value) => !value || !value.endsWith('/')
+      ),
+  });
+
+  const activeLibraries =
+    data?.libraries
+      .filter((library) => library.enabled)
+      .map((library) => library.id) ?? [];
+
+  const syncLibraries = async () => {
+    setIsSyncing(true);
+
+    const params: { sync: boolean; enable?: string } = {
+      sync: true,
+    };
+
+    if (activeLibraries.length > 0) {
+      params.enable = activeLibraries.join(',');
+    }
+
+    try {
+      await axios.get('/api/v1/settings/dubby/library', {
+        params,
+      });
+      setIsSyncing(false);
+      revalidate();
+    } catch (e) {
+      toasts.addToast(
+        intl.formatMessage(messages.dubbySyncFailedGenericError),
+        {
+          autoDismiss: true,
+          appearance: 'error',
+        }
+      );
+      setIsSyncing(false);
+      revalidate();
+    }
+  };
+
+  const startScan = async () => {
+    await axios.post('/api/v1/settings/dubby/sync', {
+      start: true,
+    });
+    revalidateSync();
+  };
+
+  const cancelScan = async () => {
+    await axios.post('/api/v1/settings/dubby/sync', {
+      cancel: true,
+    });
+    revalidateSync();
+  };
+
+  const toggleLibrary = async (libraryId: string) => {
+    setIsSyncing(true);
+    if (activeLibraries.includes(libraryId)) {
+      const params: { enable?: string } = {};
+
+      if (activeLibraries.length > 1) {
+        params.enable = activeLibraries
+          .filter((id) => id !== libraryId)
+          .join(',');
+      }
+
+      await axios.get('/api/v1/settings/dubby/library', {
+        params,
+      });
+    } else {
+      await axios.get('/api/v1/settings/dubby/library', {
+        params: {
+          enable: [...activeLibraries, libraryId].join(','),
+        },
+      });
+    }
+    if (onComplete) {
+      onComplete();
+    }
+    setIsSyncing(false);
+    revalidate();
+  };
+
+  if (!data && !error) {
+    return <LoadingSpinner />;
+  }
+
+  return (
+    <>
+      <div className="mb-6">
+        <h3 className="heading">
+          {intl.formatMessage(messages.dubbylibraries)}
+        </h3>
+        <p className="description">
+          {intl.formatMessage(messages.dubbylibrariesDescription)}
+        </p>
+      </div>
+      <div className="section">
+        <Button onClick={() => syncLibraries()} disabled={isSyncing}>
+          <svg
+            className={`${isSyncing ? 'animate-spin' : ''} mr-1 h-5 w-5`}
+            fill="currentColor"
+            viewBox="0 0 20 20"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              fillRule="evenodd"
+              d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+              clipRule="evenodd"
+            />
+          </svg>
+          {isSyncing
+            ? intl.formatMessage(messages.syncing)
+            : intl.formatMessage(messages.syncDubby)}
+        </Button>
+        <ul className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
+          {data?.libraries.map((library) => (
+            <LibraryItem
+              name={library.name}
+              isEnabled={library.enabled}
+              key={`setting-library-${library.id}`}
+              onToggle={() => toggleLibrary(library.id)}
+            />
+          ))}
+        </ul>
+      </div>
+      <div className="mb-6 mt-10">
+        <h3 className="heading">
+          <FormattedMessage {...messages.manualscanDubby} />
+        </h3>
+        <p className="description">
+          {intl.formatMessage(messages.manualscanDescriptionDubby)}
+        </p>
+      </div>
+      <div className="section">
+        <div className="rounded-md bg-gray-800 p-4">
+          <div className="relative mb-6 h-8 w-full overflow-hidden rounded-full bg-gray-600">
+            {dataSync?.running && (
+              <div
+                className="h-8 bg-indigo-600 transition-all duration-200 ease-in-out"
+                style={{
+                  width: `${Math.round(
+                    (dataSync.progress / dataSync.total) * 100
+                  )}%`,
+                }}
+              />
+            )}
+            <div className="absolute inset-0 flex h-8 w-full items-center justify-center text-sm">
+              <span>
+                {dataSync?.running
+                  ? `${dataSync.progress} of ${dataSync.total}`
+                  : 'Not running'}
+              </span>
+            </div>
+          </div>
+          <div className="flex w-full flex-col sm:flex-row">
+            {dataSync?.running && (
+              <>
+                {dataSync.currentLibrary && (
+                  <div className="mb-2 mr-0 flex items-center sm:mb-0 sm:mr-2">
+                    <Badge>
+                      <FormattedMessage
+                        {...messages.currentlibrary}
+                        values={{ name: dataSync.currentLibrary.name }}
+                      />
+                    </Badge>
+                  </div>
+                )}
+                <div className="flex items-center">
+                  <Badge badgeType="warning">
+                    <FormattedMessage
+                      {...messages.librariesRemaining}
+                      values={{
+                        count: dataSync.currentLibrary
+                          ? dataSync.libraries.slice(
+                              dataSync.libraries.findIndex(
+                                (library) =>
+                                  library.id === dataSync.currentLibrary?.id
+                              ) + 1
+                            ).length
+                          : 0,
+                      }}
+                    />
+                  </Badge>
+                </div>
+              </>
+            )}
+            <div className="flex-1 text-right">
+              {!dataSync?.running && (
+                <Button buttonType="warning" onClick={() => startScan()}>
+                  <svg
+                    className="mr-1 h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                  <FormattedMessage {...messages.startscan} />
+                </Button>
+              )}
+
+              {dataSync?.running && (
+                <Button buttonType="danger" onClick={() => cancelScan()}>
+                  <svg
+                    className="mr-1 h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                  <FormattedMessage {...messages.cancelscan} />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      {isSetupSettings && (
+        <div className="text-sm text-gray-500">
+          <span className="mr-2">
+            <Badge>{intl.formatMessage(messages.tip)}</Badge>
+          </span>
+          {intl.formatMessage(messages.scanbackground)}
+        </div>
+      )}
+      <div className="mb-6 mt-10">
+        <h3 className="heading">
+          {intl.formatMessage(messages.dubbysettings)}
+        </h3>
+        <p className="description">
+          {intl.formatMessage(messages.dubbySettingsDescription)}
+        </p>
+      </div>
+      <Formik
+        initialValues={{
+          hostname: data?.hostname || '',
+          port: data?.port ?? 3000,
+          useSsl: data?.useSsl ?? false,
+          urlBase: data?.urlBase || '',
+          apiKey: data?.apiKey || '',
+        }}
+        validationSchema={DubbySettingsSchema}
+        onSubmit={async (values) => {
+          try {
+            await axios.post('/api/v1/settings/dubby', {
+              hostname: values.hostname,
+              port: Number(values.port),
+              useSsl: values.useSsl,
+              urlBase: values.urlBase,
+              apiKey: values.apiKey,
+            } as Partial<DubbySettings>);
+
+            addToast(intl.formatMessage(messages.dubbySettingsSuccess), {
+              autoDismiss: true,
+              appearance: 'success',
+            });
+          } catch (e) {
+            addToast(intl.formatMessage(messages.dubbySettingsFailure), {
+              autoDismiss: true,
+              appearance: 'error',
+            });
+          } finally {
+            revalidate();
+          }
+        }}
+      >
+        {({
+          errors,
+          touched,
+          values,
+          setFieldValue,
+          handleSubmit,
+          isSubmitting,
+          isValid,
+        }) => {
+          return (
+            <form className="section" onSubmit={handleSubmit}>
+              <div className="form-row">
+                <label htmlFor="hostname" className="text-label">
+                  {intl.formatMessage(messages.hostname)}
+                  <span className="text-red-500">*</span>
+                </label>
+                <div className="form-input-area">
+                  <div className="form-input-field">
+                    <span className="inline-flex cursor-default items-center rounded-l-md border border-r-0 border-gray-500 bg-gray-800 px-3 text-gray-100 sm:text-sm">
+                      {values.useSsl ? 'https://' : 'http://'}
+                    </span>
+                    <Field
+                      type="text"
+                      inputMode="url"
+                      id="hostname"
+                      name="hostname"
+                      className="rounded-r-only"
+                    />
+                  </div>
+                  {errors.hostname &&
+                    touched.hostname &&
+                    typeof errors.hostname === 'string' && (
+                      <div className="error">{errors.hostname}</div>
+                    )}
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="port" className="text-label">
+                  {intl.formatMessage(messages.port)}
+                  <span className="label-required">*</span>
+                </label>
+                <div className="form-input-area">
+                  <Field
+                    type="text"
+                    inputMode="numeric"
+                    id="port"
+                    name="port"
+                    className="short"
+                  />
+                  {errors.port &&
+                    touched.port &&
+                    typeof errors.port === 'string' && (
+                      <div className="error">{errors.port}</div>
+                    )}
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="useSsl" className="checkbox-label">
+                  {intl.formatMessage(messages.enablessl)}
+                </label>
+                <div className="form-input-area">
+                  <Field
+                    type="checkbox"
+                    id="useSsl"
+                    name="useSsl"
+                    onChange={() => {
+                      setFieldValue('useSsl', !values.useSsl);
+                      setFieldValue('port', values.useSsl ? 3000 : 443);
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="apiKey" className="text-label">
+                  {intl.formatMessage(messages.apiKey)}
+                </label>
+                <div className="form-input-area">
+                  <div className="form-input-field">
+                    <SensitiveInput
+                      as="field"
+                      type="text"
+                      inputMode="url"
+                      id="apiKey"
+                      name="apiKey"
+                    />
+                  </div>
+                  {errors.apiKey && touched.apiKey && (
+                    <div className="error">{errors.apiKey}</div>
+                  )}
+                </div>
+              </div>
+              {!isSetupSettings && (
+                <div className="form-row">
+                  <label htmlFor="urlBase" className="text-label">
+                    {intl.formatMessage(messages.urlBase)}
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <Field
+                        type="text"
+                        inputMode="url"
+                        id="urlBase"
+                        name="urlBase"
+                      />
+                    </div>
+                    {errors.urlBase &&
+                      touched.urlBase &&
+                      typeof errors.urlBase === 'string' && (
+                        <div className="error">{errors.urlBase}</div>
+                      )}
+                  </div>
+                </div>
+              )}
+              <div
+                className={`actions ${isSetupSettings ? 'mt-0 border-0' : ''}`}
+              >
+                <div className="flex justify-end">
+                  <span className="ml-3 inline-flex rounded-md shadow-sm">
+                    <Button
+                      buttonType="primary"
+                      type="submit"
+                      disabled={isSubmitting || !isValid}
+                    >
+                      <ArrowDownOnSquareIcon />
+                      <span>
+                        {isSubmitting
+                          ? intl.formatMessage(globalMessages.saving)
+                          : intl.formatMessage(globalMessages.save)}
+                      </span>
+                    </Button>
+                  </span>
+                </div>
+              </div>
+            </form>
+          );
+        }}
+      </Formik>
+    </>
+  );
+};
+
+export default SettingsDubby;

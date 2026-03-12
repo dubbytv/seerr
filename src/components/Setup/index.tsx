@@ -6,6 +6,7 @@ import Button from '@app/components/Common/Button';
 import ImageFader from '@app/components/Common/ImageFader';
 import PageTitle from '@app/components/Common/PageTitle';
 import LanguagePicker from '@app/components/Layout/LanguagePicker';
+import SettingsDubby from '@app/components/Settings/SettingsDubby';
 import SettingsJellyfin from '@app/components/Settings/SettingsJellyfin';
 import SettingsPlex from '@app/components/Settings/SettingsPlex';
 import SettingsServices from '@app/components/Settings/SettingsServices';
@@ -30,10 +31,12 @@ const messages = defineMessages('components.Setup', {
   configjellyfin: 'Configure Jellyfin',
   configplex: 'Configure Plex',
   configemby: 'Configure Emby',
+  configdubby: 'Configure Dubby',
   setup: 'Setup',
   finish: 'Finish Setup',
   finishing: 'Finishing…',
   continue: 'Continue',
+  back: 'Go back',
   servertype: 'Choose Server Type',
   signin: 'Sign In',
   configuremediaserver: 'Configure Media Server',
@@ -77,6 +80,7 @@ const Setup = () => {
         [MediaServerType.JELLYFIN]: '/api/v1/settings/jellyfin',
         [MediaServerType.EMBY]: '/api/v1/settings/jellyfin',
         [MediaServerType.PLEX]: '/api/v1/settings/plex',
+        [MediaServerType.DUBBY]: '/api/v1/settings/dubby',
         [MediaServerType.NOT_CONFIGURED]: '',
       };
 
@@ -202,7 +206,7 @@ const Setup = () => {
               <div className="mb-2 flex justify-center pb-6 text-sm">
                 {intl.formatMessage(messages.subtitle)}
               </div>
-              <div className="grid grid-cols-3">
+              <div className="grid grid-cols-4">
                 <div className="flex flex-col divide-y divide-gray-600 rounded-l border border-gray-600 py-2">
                   <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
                     <JellyfinLogo className="h-10" />
@@ -235,7 +239,7 @@ const Setup = () => {
                     </button>
                   </div>
                 </div>
-                <div className="flex flex-col divide-y divide-gray-600 rounded-r border border-gray-600 py-2">
+                <div className="flex flex-col divide-y divide-gray-600 border border-gray-600 py-2">
                   <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
                     <EmbyLogo className="h-9" />
                   </div>
@@ -248,6 +252,22 @@ const Setup = () => {
                       className="button-md relative z-10 inline-flex h-full w-full items-center justify-center rounded-md border border-gray-600 bg-transparent px-4 py-2 text-sm font-medium leading-5 text-white transition duration-150 ease-in-out hover:z-20 hover:border-gray-200 focus:z-20 focus:border-gray-100 focus:outline-none active:border-gray-100"
                     >
                       {intl.formatMessage(messages.configemby)}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-col divide-y divide-gray-600 rounded-r border border-gray-600 py-2">
+                  <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
+                    <span className="text-2xl font-bold text-indigo-400">dubby</span>
+                  </div>
+                  <div className="px-2 pt-2">
+                    <button
+                      onClick={() => {
+                        setMediaServerType(MediaServerType.DUBBY);
+                        setCurrentStep(2);
+                      }}
+                      className="button-md relative z-10 inline-flex h-full w-full items-center justify-center rounded-md border border-gray-600 bg-transparent px-4 py-2 text-sm font-medium leading-5 text-white transition duration-150 ease-in-out hover:z-20 hover:border-gray-200 focus:z-20 focus:border-gray-100 focus:outline-none active:border-gray-100"
+                    >
+                      {intl.formatMessage(messages.configdubby)}
                     </button>
                   </div>
                 </div>
@@ -268,11 +288,24 @@ const Setup = () => {
             <div className="p-2">
               {mediaServerType === MediaServerType.PLEX ? (
                 <SettingsPlex onComplete={handleComplete} />
+              ) : mediaServerType === MediaServerType.DUBBY ? (
+                <SettingsDubby isSetupSettings onComplete={handleComplete} />
               ) : (
                 <SettingsJellyfin isSetupSettings onComplete={handleComplete} />
               )}
               <div className="actions">
-                <div className="flex justify-end">
+                <div className="flex justify-between">
+                  <span className="inline-flex rounded-md shadow-sm">
+                    <Button
+                      buttonType="default"
+                      onClick={() => {
+                        setMediaServerType(MediaServerType.NOT_CONFIGURED);
+                        setCurrentStep(1);
+                      }}
+                    >
+                      {intl.formatMessage(messages.back)}
+                    </Button>
+                  </span>
                   <span className="ml-3 inline-flex rounded-md shadow-sm">
                     <Button
                       buttonType="primary"

@@ -12,6 +12,7 @@ const messages = defineMessages('components.Settings', {
   menuUsers: 'Users',
   menuPlexSettings: 'Plex',
   menuJellyfinSettings: '{mediaServerName}',
+  menuDubbySettings: 'Dubby',
   menuServices: 'Services',
   menuNetwork: 'Network',
   menuNotifications: 'Notifications',
@@ -45,11 +46,17 @@ const SettingsLayout = ({ children }: SettingsLayoutProps) => {
           route: '/settings/plex',
           regex: /^\/settings\/plex/,
         }
-      : {
-          text: getAvailableMediaServerName(),
-          route: '/settings/jellyfin',
-          regex: /^\/settings\/jellyfin/,
-        },
+      : settings.currentSettings.mediaServerType === MediaServerType.DUBBY
+        ? {
+            text: intl.formatMessage(messages.menuDubbySettings),
+            route: '/settings/dubby',
+            regex: /^\/settings\/dubby/,
+          }
+        : {
+            text: getAvailableMediaServerName(),
+            route: '/settings/jellyfin',
+            regex: /^\/settings\/jellyfin/,
+          },
     {
       text: intl.formatMessage(messages.menuServices),
       route: '/settings/services',

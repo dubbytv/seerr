@@ -1,3 +1,4 @@
+import DubbyAPI from '@server/api/dubbyApi';
 import JellyfinAPI from '@server/api/jellyfin';
 import PlexAPI from '@server/api/plexapi';
 import PlexTvAPI from '@server/api/plextv';
@@ -18,6 +19,7 @@ import type { AvailableCacheIds } from '@server/lib/cache';
 import cacheManager from '@server/lib/cache';
 import ImageProxy from '@server/lib/imageproxy';
 import { Permission } from '@server/lib/permissions';
+import { dubbyFullScanner } from '@server/lib/scanners/dubby';
 import { jellyfinFullScanner } from '@server/lib/scanners/jellyfin';
 import { plexFullScanner } from '@server/lib/scanners/plex';
 import type { JobId, Library, MainSettings } from '@server/lib/settings';
@@ -432,6 +434,96 @@ settingsRoutes.post('/jellyfin/sync', (req, res) => {
   }
   return res.status(200).json(jellyfinFullScanner.status());
 });
+
+// Dubby settings
+settingsRoutes.get('/dubby', (_req, res) => {
+  const settings = getSettings();
+  res.status(200).json(settings.dubby);
+});
+
+settingsRoutes.post('/dubby', async (req, res, next) => {
+  const settings = getSettings();
+
+  try {
+    const tempSettings = { ...settings.dubby, ...req.body };
+    const baseUrl = `${tempSettings.useSsl ? 'https' : 'http'}://${tempSettings.hostname}:${tempSettings.port}${tempSettings.urlBase || ''}`;
+
+    const dubbyClient = new DubbyAPI(baseUrl, tempSettings.apiKey);
+    const info = await dubbyClient.getSystemInfo();
+
+    if (!info?.id) {
+      return next({ status: 400, message: 'Could not connect to Dubby server' });
+    }
+
+    Object.assign(settings.dubby, req.body);
+    settings.dubby.name = info.name;
+    settings.dubby.serverId = info.id;
+    await settings.save();
+  } catch (e) {
+    logger.error('Something went wrong testing Dubby connection', {
+      label: 'API',
+      errorMessage: e.message,
+    });
+    return next({ status: 500, message: e.message });
+  }
+
+  return res.status(200).json(settings.dubby);
+});
+
+settingsRoutes.get('/dubby/library', async (req, res, next) => {
+  const settings = getSettings();
+
+  try {
+    if (req.query.sync) {
+      const baseUrl = `${settings.dubby.useSsl ? 'https' : 'http'}://${settings.dubby.hostname}:${settings.dubby.port}${settings.dubby.urlBase || ''}`;
+      const dubbyClient = new DubbyAPI(baseUrl, settings.dubby.apiKey);
+      const libraries = await dubbyClient.getLibraries();
+
+      const existingMap = new Map(
+        settings.dubby.libraries.map((l) => [l.id, l])
+      );
+
+      settings.dubby.libraries = libraries.map((lib) => ({
+        id: lib.id,
+        name: lib.name,
+        enabled: existingMap.get(lib.id)?.enabled ?? false,
+        type: lib.type === 'tv' ? 'show' : 'movie',
+      }));
+      await settings.save();
+    }
+
+    if (req.query.enable) {
+      const enableIds = (req.query.enable as string).split(',');
+      settings.dubby.libraries = settings.dubby.libraries.map((lib) => ({
+        ...lib,
+        enabled: enableIds.includes(lib.id),
+      }));
+      await settings.save();
+    }
+
+    return res.status(200).json(settings.dubby.libraries);
+  } catch (e) {
+    logger.error('Failed to get Dubby libraries', {
+      label: 'API',
+      errorMessage: e.message,
+    });
+    return next({ status: 500, message: e.message });
+  }
+});
+
+settingsRoutes.get('/dubby/sync', (_req, res) => {
+  return res.status(200).json(dubbyFullScanner.status());
+});
+
+settingsRoutes.post('/dubby/sync', (req, res) => {
+  if (req.body.cancel) {
+    dubbyFullScanner.cancel();
+  } else if (req.body.start) {
+    dubbyFullScanner.run();
+  }
+  return res.status(200).json(dubbyFullScanner.status());
+});
+
 settingsRoutes.get('/tautulli', (_req, res) => {
   const settings = getSettings();
 

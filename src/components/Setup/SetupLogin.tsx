@@ -1,5 +1,6 @@
 import Button from '@app/components/Common/Button';
 import PlexLoginButton from '@app/components/Login/PlexLoginButton';
+import DubbySetup from '@app/components/Setup/DubbySetup';
 import JellyfinSetup from '@app/components/Setup/JellyfinSetup';
 import { useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
@@ -15,6 +16,7 @@ const messages = defineMessages('components.Setup', {
   signinWithJellyfin: 'Enter your Jellyfin details',
   signinWithEmby: 'Enter your Emby details',
   signinWithPlex: 'Enter your Plex details',
+  signinWithDubby: 'Create your Seerr admin account and connect to Dubby',
   back: 'Go back',
 });
 
@@ -75,6 +77,8 @@ const SetupLogin: React.FC<LoginWithMediaServerProps> = ({
           <FormattedMessage {...messages.signinWithJellyfin} />
         ) : serverType === MediaServerType.EMBY ? (
           <FormattedMessage {...messages.signinWithEmby} />
+        ) : serverType === MediaServerType.DUBBY ? (
+          <FormattedMessage {...messages.signinWithDubby} />
         ) : (
           <FormattedMessage {...messages.signinWithPlex} />
         )}
@@ -110,6 +114,9 @@ const SetupLogin: React.FC<LoginWithMediaServerProps> = ({
           serverType={serverType}
           onCancel={onCancel}
         />
+      )}
+      {serverType === MediaServerType.DUBBY && (
+        <DubbySetup revalidate={revalidate} onCancel={onCancel} />
       )}
     </div>
   );

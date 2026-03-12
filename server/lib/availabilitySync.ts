@@ -1,3 +1,4 @@
+import DubbyAPI from '@server/api/dubbyApi';
 import type { JellyfinLibraryItem } from '@server/api/jellyfin';
 import JellyfinAPI from '@server/api/jellyfin';
 import type { PlexMetadata } from '@server/api/plexapi';
@@ -24,6 +25,8 @@ class AvailabilitySync {
 
   private jellyfinClient: JellyfinAPI;
   private jellyfinSeasonsCache: Record<string, JellyfinLibraryItem[]>;
+
+  private dubbyClient: DubbyAPI;
 
   private sonarrSeasonsCache: Record<string, SonarrSeason[]>;
   private radarrServers: RadarrSettings[];
@@ -106,6 +109,25 @@ class AvailabilitySync {
             return;
           }
           break;
+        case MediaServerType.DUBBY: {
+          const { dubby } = settings;
+          const baseUrl = `${dubby.useSsl ? 'https' : 'http'}://${dubby.hostname}:${dubby.port}${dubby.urlBase || ''}`;
+
+          this.dubbyClient = new DubbyAPI(baseUrl, dubby.apiKey);
+
+          try {
+            await this.dubbyClient.getSystemInfo();
+          } catch (e) {
+            logger.error('Dubby sync interrupted. Could not connect.', {
+              label: 'AvailabilitySync',
+              errorMessage: e.message,
+            });
+
+            this.running = false;
+            return;
+          }
+          break;
+        }
         default:
           logger.error('An admin is not configured.');
 
@@ -187,6 +209,36 @@ class AvailabilitySync {
             }
 
             if (existsInJellyfin4k || existsInRadarr4k) {
+              movieExists4k = true;
+              logger.info(
+                `The 4K movie [TMDB ID ${media.tmdbId}] still exists. Preventing removal.`,
+                {
+                  label: 'AvailabilitySync',
+                }
+              );
+            }
+          }
+
+          // Dubby
+          if (mediaServerType === MediaServerType.DUBBY) {
+            const { existsInDubby } = await this.mediaExistsInDubby(
+              media,
+              false
+            );
+            const { existsInDubby: existsInDubby4k } =
+              await this.mediaExistsInDubby(media, true);
+
+            if (existsInDubby || existsInRadarr) {
+              movieExists = true;
+              logger.info(
+                `The non-4K movie [TMDB ID ${media.tmdbId}] still exists. Preventing removal.`,
+                {
+                  label: 'AvailabilitySync',
+                }
+              );
+            }
+
+            if (existsInDubby4k || existsInRadarr4k) {
               movieExists4k = true;
               logger.info(
                 `The 4K movie [TMDB ID ${media.tmdbId}] still exists. Preventing removal.`,
@@ -294,6 +346,46 @@ class AvailabilitySync {
             }
           }
 
+          // Dubby
+          const dubbySeasonsMap: Map<number, boolean> = new Map();
+          const dubbySeasonsMap4k: Map<number, boolean> = new Map();
+
+          if (mediaServerType === MediaServerType.DUBBY) {
+            const { existsInDubby, seasonsMap: dubbySeasons } =
+              await this.mediaExistsInDubby(media, false);
+            const {
+              existsInDubby: existsInDubby4k,
+              seasonsMap: dubbySeasons4k,
+            } = await this.mediaExistsInDubby(media, true);
+
+            for (const [k, v] of dubbySeasons) {
+              dubbySeasonsMap.set(k, v);
+            }
+            for (const [k, v] of dubbySeasons4k) {
+              dubbySeasonsMap4k.set(k, v);
+            }
+
+            if (existsInDubby || existsInSonarr) {
+              showExists = true;
+              logger.info(
+                `The non-4K show [TMDB ID ${media.tmdbId}] still exists. Preventing removal.`,
+                {
+                  label: 'AvailabilitySync',
+                }
+              );
+            }
+
+            if (existsInDubby4k || existsInSonarr4k) {
+              showExists4k = true;
+              logger.info(
+                `The 4K show [TMDB ID ${media.tmdbId}] still exists. Preventing removal.`,
+                {
+                  label: 'AvailabilitySync',
+                }
+              );
+            }
+          }
+
           // Here we will create a final map that will cross compare
           // with plex and sonarr. Filtered seasons will go through
           // each season and assume the season does not exist. If Plex or
@@ -333,6 +425,17 @@ class AvailabilitySync {
             finalSeasons4k = new Map([
               ...filteredSeasonsMap4k,
               ...plexSeasonsMap4k,
+              ...sonarrSeasonsMap4k,
+            ]);
+          } else if (mediaServerType === MediaServerType.DUBBY) {
+            finalSeasons = new Map([
+              ...filteredSeasonsMap,
+              ...dubbySeasonsMap,
+              ...sonarrSeasonsMap,
+            ]);
+            finalSeasons4k = new Map([
+              ...filteredSeasonsMap4k,
+              ...dubbySeasonsMap4k,
               ...sonarrSeasonsMap4k,
             ]);
           } else {
@@ -503,6 +606,10 @@ class AvailabilitySync {
           isMediaProcessing
             ? media[is4k ? 'jellyfinMediaId4k' : 'jellyfinMediaId']
             : null;
+      } else if (mediaServerType === MediaServerType.DUBBY) {
+        media[is4k ? 'dubbyMediaId4k' : 'dubbyMediaId'] = isMediaProcessing
+          ? media[is4k ? 'dubbyMediaId4k' : 'dubbyMediaId']
+          : null;
       }
       logger.info(
         `The ${is4k ? '4K' : 'non-4K'} ${
@@ -514,7 +621,9 @@ class AvailabilitySync {
             ? 'plex'
             : mediaServerType === MediaServerType.JELLYFIN
               ? 'jellyfin'
-              : 'emby'
+              : mediaServerType === MediaServerType.DUBBY
+                ? 'dubby'
+                : 'emby'
         } instance. Status will be changed to deleted.`,
         { label: 'AvailabilitySync' }
       );
@@ -589,7 +698,9 @@ class AvailabilitySync {
             ? 'plex'
             : mediaServerType === MediaServerType.JELLYFIN
               ? 'jellyfin'
-              : 'emby'
+              : mediaServerType === MediaServerType.DUBBY
+                ? 'dubby'
+                : 'emby'
         } instance. Status will be changed to deleted.`,
         { label: 'AvailabilitySync' }
       );
@@ -1076,6 +1187,49 @@ class AvailabilitySync {
     }
 
     return seasonExistsInJellyfin;
+  }
+
+  // Dubby
+  private async mediaExistsInDubby(
+    media: Media,
+    is4k: boolean
+  ): Promise<{
+    existsInDubby: boolean;
+    seasonsMap: Map<number, boolean>;
+  }> {
+    const dubbyId = is4k ? media.dubbyMediaId4k : media.dubbyMediaId;
+    const seasonsMap: Map<number, boolean> = new Map();
+
+    if (!dubbyId) {
+      return { existsInDubby: false, seasonsMap };
+    }
+
+    try {
+      const result = await this.dubbyClient.checkAvailability(
+        media.tmdbId,
+        media.mediaType as 'movie' | 'tv'
+      );
+
+      if (media.mediaType === 'movie') {
+        const available = is4k
+          ? result.available4k ?? false
+          : result.available;
+        return { existsInDubby: available, seasonsMap };
+      }
+
+      // TV: build season availability map
+      for (const s of result.seasons ?? []) {
+        seasonsMap.set(
+          s.seasonNumber,
+          s.available && s.episodesAvailable > 0
+        );
+      }
+
+      return { existsInDubby: true, seasonsMap };
+    } catch {
+      // Network error: assume still available (don't mark deleted on transient failure)
+      return { existsInDubby: true, seasonsMap };
+    }
   }
 }
 

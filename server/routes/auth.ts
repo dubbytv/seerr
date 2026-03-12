@@ -1,3 +1,4 @@
+import DubbyAPI from '@server/api/dubbyApi';
 import JellyfinAPI from '@server/api/jellyfin';
 import PlexTvAPI from '@server/api/plextv';
 import { ApiErrorCode } from '@server/constants/error';
@@ -16,6 +17,7 @@ import { getAppVersion } from '@server/utils/appVersion';
 import { getHostname } from '@server/utils/getHostname';
 import axios from 'axios';
 import { Router } from 'express';
+import gravatarUrl from 'gravatar-url';
 import net from 'net';
 import validator from 'validator';
 
@@ -590,6 +592,131 @@ authRoutes.post('/jellyfin', async (req, res, next) => {
           message: 'Something went wrong.',
         });
     }
+  }
+});
+
+authRoutes.post('/dubby', async (req, res, next) => {
+  const settings = getSettings();
+  const userRepository = getRepository(User);
+  const body = req.body as {
+    email?: string;
+    username?: string;
+    password?: string;
+    hostname?: string;
+    port?: number;
+    useSsl?: boolean;
+    urlBase?: string;
+  };
+
+  if (!body.email || !body.username || !body.password) {
+    return next({
+      status: 500,
+      message: 'Email, username, and password are required.',
+    });
+  }
+
+  if (!body.hostname) {
+    return next({
+      status: 500,
+      message: 'Dubby hostname is required.',
+    });
+  }
+
+  try {
+    const baseUrl = `${body.useSsl ? 'https' : 'http'}://${body.hostname}:${body.port ?? 3000}${body.urlBase || ''}`;
+    const dubbyClient = new DubbyAPI(baseUrl, '');
+    const info = await dubbyClient.getSystemInfo();
+
+    if (!info?.id) {
+      return next({
+        status: 500,
+        message: ApiErrorCode.InvalidUrl,
+      });
+    }
+
+    const userCount = await userRepository.count();
+    if (userCount > 0) {
+      return next({
+        status: 500,
+        message: 'Admin user already exists.',
+      });
+    }
+
+    const user = new User({
+      id: 1,
+      email: body.email,
+      username: body.username,
+      permissions: Permission.ADMIN,
+      avatar: gravatarUrl(body.email, { default: 'mm', size: 200 }),
+      userType: UserType.LOCAL,
+    });
+    await user.setPassword(body.password);
+    await userRepository.save(user);
+
+    settings.main.mediaServerType = MediaServerType.DUBBY;
+    settings.dubby.hostname = body.hostname;
+    settings.dubby.port = body.port ?? 3000;
+    settings.dubby.useSsl = body.useSsl ?? false;
+    settings.dubby.urlBase = body.urlBase ?? '';
+    settings.dubby.name = info.name;
+    settings.dubby.serverId = info.id;
+    await settings.save();
+
+    // Auto-register with Dubby and configure webhook (best-effort)
+    try {
+      const seerrBaseUrl = `${req.protocol}://${req.get('host')}`;
+      const registration = await dubbyClient.registerInstance(
+        'Seerr',
+        seerrBaseUrl,
+        settings.main.apiKey
+      );
+
+      // Store the Dubby-issued API key so all outbound calls use it
+      settings.dubby.apiKey = registration.dubbyApiKey;
+
+      // Configure webhook notification agent
+      const fullWebhookUrl = `${baseUrl}${registration.webhookUrl}`;
+      settings.notifications.agents.webhook.enabled = true;
+      settings.notifications.agents.webhook.types = 222;
+      settings.notifications.agents.webhook.options.webhookUrl = fullWebhookUrl;
+      await settings.save();
+
+      logger.info('Auto-registered with Dubby and configured webhook', {
+        label: 'API',
+        dubbyInstanceId: registration.id,
+        webhookUrl: fullWebhookUrl,
+      });
+    } catch (regError) {
+      logger.warn('Failed to auto-register with Dubby; manual setup required', {
+        label: 'API',
+        errorMessage: regError.message,
+      });
+    }
+
+    startJobs();
+
+    if (req.session) {
+      req.session.userId = user.id;
+    }
+
+    logger.info('Created initial admin user for Dubby setup', {
+      label: 'API',
+      ip: req.ip,
+      email: body.email,
+      username: body.username,
+    });
+
+    return res.status(200).json(user.filter());
+  } catch (e) {
+    logger.error('Something went wrong during Dubby setup', {
+      label: 'API',
+      errorMessage: e.message,
+      ip: req.ip,
+    });
+    return next({
+      status: 500,
+      message: ApiErrorCode.InvalidUrl,
+    });
   }
 });
 

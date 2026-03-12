@@ -519,6 +519,50 @@ components:
         serverID:
           type: string
           readOnly: true
+    DubbyLibrary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Movies
+        enabled:
+          type: boolean
+          example: false
+      required:
+        - id
+        - name
+        - enabled
+    DubbySettings:
+      type: object
+      properties:
+        name:
+          type: string
+          example: 'Main Server'
+          readOnly: true
+        hostname:
+          type: string
+          example: 'dubby.example.com'
+        port:
+          type: number
+          example: 3000
+        useSsl:
+          type: boolean
+          example: false
+        urlBase:
+          type: string
+          example: ''
+        apiKey:
+          type: string
+        libraries:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/DubbyLibrary'
+        serverId:
+          type: string
+          readOnly: true
     MetadataSettings:
       type: object
       properties:
@@ -2422,6 +2466,136 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/JellyfinLibrary'
+  /settings/dubby:
+    get:
+      summary: Get Dubby settings
+      description: Retrieves current Dubby settings.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DubbySettings'
+    post:
+      summary: Update Dubby settings
+      description: Updates Dubby settings with the provided values.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DubbySettings'
+      responses:
+        '200':
+          description: 'Values were successfully updated'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DubbySettings'
+  /settings/dubby/library:
+    get:
+      summary: Get Dubby libraries
+      description: Returns a list of Dubby libraries in a JSON array.
+      tags:
+        - settings
+      parameters:
+        - in: query
+          name: sync
+          description: Syncs the current libraries with the current Dubby server
+          schema:
+            type: string
+            nullable: true
+        - in: query
+          name: enable
+          explode: false
+          allowReserved: true
+          description: Comma separated list of libraries to enable. Any libraries not passed will be disabled!
+          schema:
+            type: string
+            nullable: true
+      responses:
+        '200':
+          description: 'Dubby libraries returned'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DubbyLibrary'
+  /settings/dubby/sync:
+    get:
+      summary: Get status of full Dubby library sync
+      description: Returns sync progress in a JSON object.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: Status of Dubby sync
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                    example: false
+                  progress:
+                    type: number
+                    example: 0
+                  total:
+                    type: number
+                    example: 100
+                  currentLibrary:
+                    $ref: '#/components/schemas/DubbyLibrary'
+                  libraries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DubbyLibrary'
+    post:
+      summary: Start full Dubby library sync
+      description: Runs a full Dubby library sync and returns the progress in a JSON object.
+      tags:
+        - settings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cancel:
+                  type: boolean
+                  example: false
+                start:
+                  type: boolean
+                  example: false
+      responses:
+        '200':
+          description: Status of Dubby sync
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                    example: false
+                  progress:
+                    type: number
+                    example: 0
+                  total:
+                    type: number
+                    example: 100
+                  currentLibrary:
+                    $ref: '#/components/schemas/DubbyLibrary'
+                  libraries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DubbyLibrary'
   /settings/plex:
     get:
       summary: Get Plex settings
@@ -3992,6 +4166,48 @@ paths:
               required:
                 - username
                 - password
+  /auth/dubby:
+    post:
+      summary: Sign in and configure Dubby as the media server
+      description: Creates an admin account and configures the Dubby media server connection during initial setup. If no users exist, creates the first user with admin privileges.
+      security: []
+      tags:
+        - auth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+                hostname:
+                  type: string
+                port:
+                  type: number
+                useSsl:
+                  type: boolean
+                urlBase:
+                  type: string
+                apiKey:
+                  type: string
+              required:
+                - email
+                - username
+                - password
+                - hostname
   /auth/local:
     post:
       summary: Sign in using a local account

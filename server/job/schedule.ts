@@ -5,6 +5,10 @@ import downloadTracker from '@server/lib/downloadtracker';
 import ImageProxy from '@server/lib/imageproxy';
 import refreshToken from '@server/lib/refreshToken';
 import {
+  dubbyFullScanner,
+  dubbyRecentScanner,
+} from '@server/lib/scanners/dubby';
+import {
   jellyfinFullScanner,
   jellyfinRecentScanner,
 } from '@server/lib/scanners/jellyfin';
@@ -144,6 +148,43 @@ export const startJobs = (): void => {
       }),
       running: () => jellyfinFullScanner.status().running,
       cancelFn: () => jellyfinFullScanner.cancel(),
+    });
+  } else if (mediaServerType === MediaServerType.DUBBY) {
+    // Run recently added dubby scan every 5 minutes
+    scheduledJobs.push({
+      id: 'dubby-recently-added-scan',
+      name: 'Dubby Recently Added Scan',
+      type: 'process',
+      interval: 'minutes',
+      cronSchedule: jobs['dubby-recently-added-scan'].schedule,
+      job: schedule.scheduleJob(
+        jobs['dubby-recently-added-scan'].schedule,
+        () => {
+          logger.info('Starting scheduled job: Dubby Recently Added Scan', {
+            label: 'Jobs',
+          });
+          dubbyRecentScanner.run();
+        }
+      ),
+      running: () => dubbyRecentScanner.status().running,
+      cancelFn: () => dubbyRecentScanner.cancel(),
+    });
+
+    // Run full dubby scan every 24 hours
+    scheduledJobs.push({
+      id: 'dubby-full-scan',
+      name: 'Dubby Full Library Scan',
+      type: 'process',
+      interval: 'hours',
+      cronSchedule: jobs['dubby-full-scan'].schedule,
+      job: schedule.scheduleJob(jobs['dubby-full-scan'].schedule, () => {
+        logger.info('Starting scheduled job: Dubby Full Scan', {
+          label: 'Jobs',
+        });
+        dubbyFullScanner.run();
+      }),
+      running: () => dubbyFullScanner.status().running,
+      cancelFn: () => dubbyFullScanner.cancel(),
     });
   }
 
