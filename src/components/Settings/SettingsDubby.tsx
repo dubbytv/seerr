@@ -31,8 +31,7 @@ const messages = defineMessages('components.Settings', {
   enablessl: 'Use SSL',
   urlBase: 'URL Base',
   apiKey: 'API Key',
-  dubbySyncFailedGenericError:
-    'Something went wrong while syncing libraries',
+  dubbySyncFailedGenericError: 'Something went wrong while syncing libraries',
   invalidurlerror: 'Unable to connect to Dubby server.',
   syncing: 'Syncing',
   syncDubby: 'Sync Libraries',
@@ -142,7 +141,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
       });
       setIsSyncing(false);
       revalidate();
-    } catch (e) {
+    } catch {
       toasts.addToast(
         intl.formatMessage(messages.dubbySyncFailedGenericError),
         {
@@ -384,7 +383,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             addToast(intl.formatMessage(messages.dubbySettingsFailure), {
               autoDismiss: true,
               appearance: 'error',
