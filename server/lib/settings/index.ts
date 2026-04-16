@@ -55,6 +55,17 @@ export interface JellyfinSettings {
   serverId: string;
   apiKey: string;
 }
+export interface DubbySettings {
+  name: string;
+  hostname: string;
+  port: number;
+  useSsl?: boolean;
+  urlBase?: string;
+  apiKey: string;
+  libraries: Library[];
+  serverId: string;
+}
+
 export interface TautulliSettings {
   hostname?: string;
   port?: number;
@@ -357,6 +368,8 @@ export type JobId =
   | 'download-sync-reset'
   | 'jellyfin-recently-added-scan'
   | 'jellyfin-full-scan'
+  | 'dubby-recently-added-scan'
+  | 'dubby-full-scan'
   | 'image-cache-cleanup'
   | 'availability-sync'
   | 'process-blocklisted-tags';
@@ -369,6 +382,7 @@ export interface AllSettings {
   main: MainSettings;
   plex: PlexSettings;
   jellyfin: JellyfinSettings;
+  dubby: DubbySettings;
   tautulli: TautulliSettings;
   radarr: RadarrSettings[];
   sonarr: SonarrSettings[];
@@ -440,6 +454,16 @@ class Settings {
         libraries: [],
         serverId: '',
         apiKey: '',
+      },
+      dubby: {
+        name: '',
+        hostname: '',
+        port: 3000,
+        useSsl: false,
+        urlBase: '',
+        apiKey: '',
+        libraries: [],
+        serverId: '',
       },
       tautulli: {},
       metadataSettings: {
@@ -586,6 +610,12 @@ class Settings {
         'jellyfin-full-scan': {
           schedule: '0 0 3 * * *',
         },
+        'dubby-recently-added-scan': {
+          schedule: '0 */5 * * * *',
+        },
+        'dubby-full-scan': {
+          schedule: '0 0 3 * * *',
+        },
         'image-cache-cleanup': {
           schedule: '0 0 5 * * *',
         },
@@ -643,6 +673,14 @@ class Settings {
 
   set jellyfin(data: JellyfinSettings) {
     this.data.jellyfin = mergeSettings(this.data.jellyfin, data);
+  }
+
+  get dubby(): DubbySettings {
+    return this.data.dubby;
+  }
+
+  set dubby(data: DubbySettings) {
+    this.data.dubby = mergeSettings(this.data.dubby, data);
   }
 
   get tautulli(): TautulliSettings {

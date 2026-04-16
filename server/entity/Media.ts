@@ -182,6 +182,12 @@ class Media {
   @Column({ nullable: true, type: 'varchar' })
   public jellyfinMediaId4k?: string | null;
 
+  @Column({ nullable: true, type: 'varchar' })
+  public dubbyMediaId?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  public dubbyMediaId4k?: string | null;
+
   public serviceUrl?: string;
   public serviceUrl4k?: string;
   public downloadStatus?: DownloadingItem[] = [];
@@ -211,6 +217,8 @@ class Media {
     this.ratingKey4k = null;
     this.jellyfinMediaId = null;
     this.jellyfinMediaId4k = null;
+    this.dubbyMediaId = null;
+    this.dubbyMediaId4k = null;
   }
 
   @AfterLoad()
@@ -246,7 +254,10 @@ class Media {
           this.tautulliUrl4k = `${tautulliUrl}/info?rating_key=${this.ratingKey4k}`;
         }
       }
-    } else {
+    } else if (
+      getSettings().main.mediaServerType == MediaServerType.JELLYFIN ||
+      getSettings().main.mediaServerType == MediaServerType.EMBY
+    ) {
       const pageName =
         getSettings().main.mediaServerType == MediaServerType.EMBY
           ? 'item'
@@ -264,6 +275,7 @@ class Media {
         this.mediaUrl4k = `${jellyfinHost}/web/index.html#!/${pageName}?id=${this.jellyfinMediaId4k}&context=home&serverId=${serverId}`;
       }
     }
+    // Dubby: no web UI URLs to generate
   }
 
   @AfterLoad()

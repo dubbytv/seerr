@@ -3,6 +3,7 @@ export enum MediaServerType {
   JELLYFIN,
   EMBY,
   NOT_CONFIGURED,
+  DUBBY,
 }
 
 export enum ServerType {
