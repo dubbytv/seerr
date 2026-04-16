@@ -76,7 +76,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
   isSetupSettings,
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const toasts = useToasts();
+  const { addToast } = useToasts();
 
   const {
     data,
@@ -90,7 +90,6 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
     }
   );
   const intl = useIntl();
-  const { addToast } = useToasts();
 
   const DubbySettingsSchema = Yup.object().shape({
     hostname: Yup.string()
@@ -142,7 +141,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
       setIsSyncing(false);
       revalidate();
     } catch {
-      toasts.addToast(
+      addToast(
         intl.formatMessage(messages.dubbySyncFailedGenericError),
         {
           autoDismiss: true,
@@ -155,45 +154,67 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
   };
 
   const startScan = async () => {
-    await axios.post('/api/v1/settings/dubby/sync', {
-      start: true,
-    });
-    revalidateSync();
+    try {
+      await axios.post('/api/v1/settings/dubby/sync', {
+        start: true,
+      });
+      revalidateSync();
+    } catch {
+      addToast(intl.formatMessage(messages.dubbySyncFailedGenericError), {
+        autoDismiss: true,
+        appearance: 'error',
+      });
+    }
   };
 
   const cancelScan = async () => {
-    await axios.post('/api/v1/settings/dubby/sync', {
-      cancel: true,
-    });
-    revalidateSync();
+    try {
+      await axios.post('/api/v1/settings/dubby/sync', {
+        cancel: true,
+      });
+      revalidateSync();
+    } catch {
+      addToast(intl.formatMessage(messages.dubbySyncFailedGenericError), {
+        autoDismiss: true,
+        appearance: 'error',
+      });
+    }
   };
 
   const toggleLibrary = async (libraryId: string) => {
     setIsSyncing(true);
-    if (activeLibraries.includes(libraryId)) {
-      const params: { enable?: string } = {};
+    try {
+      if (activeLibraries.includes(libraryId)) {
+        const params: { enable?: string } = {};
 
-      if (activeLibraries.length > 1) {
-        params.enable = activeLibraries
-          .filter((id) => id !== libraryId)
-          .join(',');
+        if (activeLibraries.length > 1) {
+          params.enable = activeLibraries
+            .filter((id) => id !== libraryId)
+            .join(',');
+        }
+
+        await axios.get('/api/v1/settings/dubby/library', {
+          params,
+        });
+      } else {
+        await axios.get('/api/v1/settings/dubby/library', {
+          params: {
+            enable: [...activeLibraries, libraryId].join(','),
+          },
+        });
       }
-
-      await axios.get('/api/v1/settings/dubby/library', {
-        params,
+      if (onComplete) {
+        onComplete();
+      }
+    } catch {
+      addToast(intl.formatMessage(messages.dubbySyncFailedGenericError), {
+        autoDismiss: true,
+        appearance: 'error',
       });
-    } else {
-      await axios.get('/api/v1/settings/dubby/library', {
-        params: {
-          enable: [...activeLibraries, libraryId].join(','),
-        },
-      });
+    } finally {
+      setIsSyncing(false);
+      revalidate();
     }
-    if (onComplete) {
-      onComplete();
-    }
-    setIsSyncing(false);
-    revalidate();
   };
 
   if (!data && !error) {
@@ -255,7 +276,9 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
                 className="h-8 bg-indigo-600 transition-all duration-200 ease-in-out"
                 style={{
                   width: `${Math.round(
-                    (dataSync.progress / dataSync.total) * 100
+                    dataSync.total > 0
+                      ? (dataSync.progress / dataSync.total) * 100
+                      : 0
                   )}%`,
                 }}
               />
@@ -264,7 +287,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
               <span>
                 {dataSync?.running
                   ? `${dataSync.progress} of ${dataSync.total}`
-                  : 'Not running'}
+                  : intl.formatMessage(messages.notrunning)}
               </span>
             </div>
           </div>
@@ -368,6 +391,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
           urlBase: data?.urlBase || '',
           apiKey: data?.apiKey || '',
         }}
+        enableReinitialize
         validationSchema={DubbySettingsSchema}
         onSubmit={async (values) => {
           try {
@@ -407,7 +431,7 @@ const SettingsDubby: React.FC<SettingsDubbyProps> = ({
               <div className="form-row">
                 <label htmlFor="hostname" className="text-label">
                   {intl.formatMessage(messages.hostname)}
-                  <span className="text-red-500">*</span>
+                  <span className="label-required">*</span>
                 </label>
                 <div className="form-input-area">
                   <div className="form-input-field">

@@ -598,6 +598,14 @@ authRoutes.post('/jellyfin', async (req, res, next) => {
 authRoutes.post('/dubby', async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
+
+  if (
+    settings.main.mediaServerType !== MediaServerType.NOT_CONFIGURED &&
+    settings.main.mediaServerType !== MediaServerType.DUBBY
+  ) {
+    return res.status(500).json({ error: 'Dubby login is disabled' });
+  }
+
   const body = req.body as {
     email?: string;
     username?: string;
@@ -610,14 +618,14 @@ authRoutes.post('/dubby', async (req, res, next) => {
 
   if (!body.email || !body.username || !body.password) {
     return next({
-      status: 500,
+      status: 400,
       message: 'Email, username, and password are required.',
     });
   }
 
   if (!body.hostname) {
     return next({
-      status: 500,
+      status: 400,
       message: 'Dubby hostname is required.',
     });
   }
@@ -662,34 +670,27 @@ authRoutes.post('/dubby', async (req, res, next) => {
     settings.dubby.serverId = info.id;
     await settings.save();
 
-    // Auto-register with Dubby and configure webhook (best-effort)
+    // Auto-register with Dubby (best-effort, does not send Seerr API key)
     try {
       const seerrBaseUrl = `${req.protocol}://${req.get('host')}`;
       const registration = await dubbyClient.registerInstance(
         'Seerr',
-        seerrBaseUrl,
-        settings.main.apiKey
+        seerrBaseUrl
       );
 
       // Store the Dubby-issued API key so all outbound calls use it
       settings.dubby.apiKey = registration.dubbyApiKey;
-
-      // Configure webhook notification agent
-      const fullWebhookUrl = `${baseUrl}${registration.webhookUrl}`;
-      settings.notifications.agents.webhook.enabled = true;
-      settings.notifications.agents.webhook.types = 222;
-      settings.notifications.agents.webhook.options.webhookUrl = fullWebhookUrl;
       await settings.save();
 
-      logger.info('Auto-registered with Dubby and configured webhook', {
+      logger.info('Auto-registered with Dubby', {
         label: 'API',
         dubbyInstanceId: registration.id,
-        webhookUrl: fullWebhookUrl,
       });
     } catch (regError) {
       logger.warn('Failed to auto-register with Dubby; manual setup required', {
         label: 'API',
-        errorMessage: regError.message,
+        errorMessage:
+          regError instanceof Error ? regError.message : String(regError),
       });
     }
 
@@ -710,7 +711,7 @@ authRoutes.post('/dubby', async (req, res, next) => {
   } catch (e) {
     logger.error('Something went wrong during Dubby setup', {
       label: 'API',
-      errorMessage: e.message,
+      errorMessage: e instanceof Error ? e.message : String(e),
       ip: req.ip,
     });
     return next({

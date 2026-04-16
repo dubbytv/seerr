@@ -1305,6 +1305,7 @@
   "components.Settings.webhook": "Webhook",
   "components.Settings.webpush": "Web Push",
   "components.Settings.yes": "Yes",
+  "components.Setup.DubbySetup.adminalreadyexists": "An admin user has already been configured.",
   "components.Setup.DubbySetup.back": "Go back",
   "components.Setup.DubbySetup.email": "Email Address",
   "components.Setup.DubbySetup.enablessl": "Use SSL",

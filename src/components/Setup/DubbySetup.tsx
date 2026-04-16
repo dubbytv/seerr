@@ -28,6 +28,7 @@ const messages = defineMessages('components.Setup.DubbySetup', {
   validationUrlBaseTrailingSlash: 'URL base must not end in a trailing slash',
   loginerror: 'Something went wrong while trying to sign in.',
   invalidurlerror: 'Unable to connect to Dubby server.',
+  adminalreadyexists: 'An admin user has already been configured.',
   back: 'Go back',
 });
 
@@ -97,14 +98,19 @@ function DubbySetup({ revalidate, onCancel }: DubbySetupProps) {
             password: values.password,
           });
         } catch (e) {
-          let errorMessage = null;
-          switch (e?.response?.data?.message) {
-            case ApiErrorCode.InvalidUrl:
-              errorMessage = messages.invalidurlerror;
-              break;
-            default:
-              errorMessage = messages.loginerror;
-              break;
+          let errorMessage = messages.loginerror;
+          if (axios.isAxiosError(e)) {
+            switch (e.response?.data?.message) {
+              case ApiErrorCode.InvalidUrl:
+                errorMessage = messages.invalidurlerror;
+                break;
+              case 'Admin user already exists.':
+                errorMessage = messages.adminalreadyexists;
+                break;
+              default:
+                errorMessage = messages.loginerror;
+                break;
+            }
           }
 
           toasts.addToast(intl.formatMessage(errorMessage), {
