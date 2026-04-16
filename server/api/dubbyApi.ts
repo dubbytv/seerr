@@ -1,5 +1,12 @@
 import ExternalAPI from '@server/api/externalapi';
+import { ApiErrorCode } from '@server/constants/error';
+import type { DubbySettings } from '@server/lib/settings';
+import { ApiError } from '@server/types/error';
 import logger from '@server/logger';
+
+export const getDubbyUrl = (dubby: DubbySettings): string => {
+  return `${dubby.useSsl ? 'https' : 'http'}://${dubby.hostname}:${dubby.port}${dubby.urlBase || ''}`;
+};
 
 export interface DubbySystemInfo {
   id: string;
@@ -80,7 +87,11 @@ export interface DubbyRegistrationResponse {
 class DubbyAPI extends ExternalAPI {
   constructor(dubbyUrl: string, apiKey: string) {
     super(dubbyUrl, {}, {
-      headers: { 'X-Dubby-Token': apiKey },
+      headers: {
+        'X-Dubby-Token': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
     });
   }
 
@@ -91,8 +102,9 @@ class DubbyAPI extends ExternalAPI {
       logger.error('Failed to get Dubby system info', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.InvalidUrl);
     }
   }
 
@@ -103,8 +115,9 @@ class DubbyAPI extends ExternalAPI {
       logger.error('Failed to get Dubby libraries', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
     }
   }
 
@@ -115,15 +128,16 @@ class DubbyAPI extends ExternalAPI {
   ): Promise<DubbyLibraryItem[]> {
     try {
       return await this.get<DubbyLibraryItem[]>(
-        `/api/seerr/libraries/${libraryId}/items`,
+        `/api/seerr/libraries/${encodeURIComponent(libraryId)}/items`,
         { params: { offset, limit } }
       );
     } catch (e) {
       logger.error('Failed to get Dubby library items', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
     }
   }
 
@@ -140,8 +154,9 @@ class DubbyAPI extends ExternalAPI {
       logger.error('Failed to check Dubby availability', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
     }
   }
 
@@ -154,32 +169,44 @@ class DubbyAPI extends ExternalAPI {
       logger.error('Failed to get Dubby recently added', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
     }
   }
 
   public async getItemDetails(id: string): Promise<DubbyItemDetails> {
     try {
-      return await this.get<DubbyItemDetails>(`/api/seerr/items/${id}`);
+      return await this.get<DubbyItemDetails>(
+        `/api/seerr/items/${encodeURIComponent(id)}`
+      );
     } catch (e) {
       logger.error('Failed to get Dubby item details', {
         label: 'DubbyAPI',
         errorMessage: e.message,
+        status: e.response?.status,
       });
-      throw e;
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
     }
   }
 
   public async registerInstance(
     name: string,
-    baseUrl?: string,
-    apiKey?: string
+    baseUrl?: string
   ): Promise<DubbyRegistrationResponse> {
-    return await this.post<DubbyRegistrationResponse>(
-      '/api/seerr/register',
-      { name, baseUrl, apiKey }
-    );
+    try {
+      return await this.post<DubbyRegistrationResponse>(
+        '/api/seerr/register',
+        { name, baseUrl }
+      );
+    } catch (e) {
+      logger.error('Failed to register Dubby instance', {
+        label: 'DubbyAPI',
+        errorMessage: e.message,
+        status: e.response?.status,
+      });
+      throw new ApiError(e.response?.status, ApiErrorCode.Unknown);
+    }
   }
 }
 

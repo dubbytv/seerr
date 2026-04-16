@@ -1,4 +1,4 @@
-import DubbyAPI from '@server/api/dubbyApi';
+import DubbyAPI, { getDubbyUrl } from '@server/api/dubbyApi';
 import JellyfinAPI from '@server/api/jellyfin';
 import PlexAPI from '@server/api/plexapi';
 import PlexTvAPI from '@server/api/plextv';
@@ -446,9 +446,7 @@ settingsRoutes.post('/dubby', async (req, res, next) => {
 
   try {
     const tempSettings = { ...settings.dubby, ...req.body };
-    const baseUrl = `${tempSettings.useSsl ? 'https' : 'http'}://${tempSettings.hostname}:${tempSettings.port}${tempSettings.urlBase || ''}`;
-
-    const dubbyClient = new DubbyAPI(baseUrl, tempSettings.apiKey);
+    const dubbyClient = new DubbyAPI(getDubbyUrl(tempSettings), tempSettings.apiKey);
     const info = await dubbyClient.getSystemInfo();
 
     if (!info?.id) {
@@ -462,9 +460,9 @@ settingsRoutes.post('/dubby', async (req, res, next) => {
   } catch (e) {
     logger.error('Something went wrong testing Dubby connection', {
       label: 'API',
-      errorMessage: e.message,
+      errorMessage: e instanceof Error ? e.message : String(e),
     });
-    return next({ status: 500, message: e.message });
+    return next({ status: 500, message: 'Unable to connect to Dubby server.' });
   }
 
   return res.status(200).json(settings.dubby);
@@ -475,8 +473,7 @@ settingsRoutes.get('/dubby/library', async (req, res, next) => {
 
   try {
     if (req.query.sync) {
-      const baseUrl = `${settings.dubby.useSsl ? 'https' : 'http'}://${settings.dubby.hostname}:${settings.dubby.port}${settings.dubby.urlBase || ''}`;
-      const dubbyClient = new DubbyAPI(baseUrl, settings.dubby.apiKey);
+      const dubbyClient = new DubbyAPI(getDubbyUrl(settings.dubby), settings.dubby.apiKey);
       const libraries = await dubbyClient.getLibraries();
 
       const existingMap = new Map(
@@ -505,9 +502,9 @@ settingsRoutes.get('/dubby/library', async (req, res, next) => {
   } catch (e) {
     logger.error('Failed to get Dubby libraries', {
       label: 'API',
-      errorMessage: e.message,
+      errorMessage: e instanceof Error ? e.message : String(e),
     });
-    return next({ status: 500, message: e.message });
+    return next({ status: 500, message: 'Failed to get Dubby libraries.' });
   }
 });
 

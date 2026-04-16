@@ -1,4 +1,4 @@
-import DubbyAPI from '@server/api/dubbyApi';
+import DubbyAPI, { getDubbyUrl } from '@server/api/dubbyApi';
 import type { JellyfinLibraryItem } from '@server/api/jellyfin';
 import JellyfinAPI from '@server/api/jellyfin';
 import type { PlexMetadata } from '@server/api/plexapi';
@@ -111,16 +111,14 @@ class AvailabilitySync {
           break;
         case MediaServerType.DUBBY: {
           const { dubby } = settings;
-          const baseUrl = `${dubby.useSsl ? 'https' : 'http'}://${dubby.hostname}:${dubby.port}${dubby.urlBase || ''}`;
-
-          this.dubbyClient = new DubbyAPI(baseUrl, dubby.apiKey);
+          this.dubbyClient = new DubbyAPI(getDubbyUrl(dubby), dubby.apiKey);
 
           try {
             await this.dubbyClient.getSystemInfo();
           } catch (e) {
             logger.error('Dubby sync interrupted. Could not connect.', {
               label: 'AvailabilitySync',
-              errorMessage: e.message,
+              errorMessage: e instanceof Error ? e.message : String(e),
             });
 
             this.running = false;

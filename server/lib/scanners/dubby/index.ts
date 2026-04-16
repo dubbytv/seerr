@@ -1,4 +1,4 @@
-import DubbyAPI from '@server/api/dubbyApi';
+import DubbyAPI, { getDubbyUrl } from '@server/api/dubbyApi';
 import type { DubbyLibraryItem } from '@server/api/dubbyApi';
 import { MediaServerType } from '@server/constants/server';
 import type {
@@ -9,6 +9,7 @@ import type {
 import BaseScanner from '@server/lib/scanners/baseScanner';
 import type { Library } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
+import { uniqWith } from 'lodash';
 
 interface DubbySyncStatus extends StatusBase {
   currentLibrary: Library;
@@ -52,50 +53,60 @@ class DubbyScanner
       return;
     }
 
-    this.running = true;
-    this.progress = 0;
+    const sessionId = this.startRun();
 
     const { dubby } = settings;
-    const baseUrl = `${dubby.useSsl ? 'https' : 'http'}://${dubby.hostname}:${dubby.port}${dubby.urlBase || ''}`;
-
-    this.dubbyApi = new DubbyAPI(baseUrl, dubby.apiKey);
+    this.dubbyApi = new DubbyAPI(getDubbyUrl(dubby), dubby.apiKey);
     this.libraries = dubby.libraries.filter((lib) => lib.enabled);
 
     if (this.libraries.length === 0) {
       this.log('No enabled Dubby libraries. Skipping.', 'info');
-      this.running = false;
+      this.endRun(sessionId);
       return;
     }
 
     try {
-      for (const library of this.libraries) {
-        this.currentLibrary = library;
-        this.log(`Processing library: ${library.name}`, 'info');
+      if (this.isRecentOnly) {
+        // Fetch recent items once (global), deduplicate, then process
+        const recentItems = await this.dubbyApi.getRecentlyAdded(50);
 
-        if (this.isRecentOnly) {
-          const recentItems = await this.dubbyApi.getRecentlyAdded(50);
-
-          for (const item of recentItems) {
-            if (item.mediaType === 'movie') {
-              await this.processDubbyMovie({
-                ...item,
-                imdbId: null,
-                tvdbId: null,
-                resolution: null,
-                seasons: undefined,
-              });
-            } else {
-              await this.processDubbyShow({
-                ...item,
-                imdbId: null,
-                tvdbId: null,
-                resolution: null,
-                seasons: undefined,
-              });
-            }
+        // Fetch full details for each recent item to get resolution/seasons
+        const fullItems: DubbyLibraryItem[] = [];
+        for (const item of recentItems) {
+          try {
+            const details = await this.dubbyApi.getItemDetails(item.id);
+            fullItems.push({
+              id: details.id,
+              title: details.title,
+              year: details.year,
+              tmdbId: details.tmdbId,
+              imdbId: details.imdbId ?? null,
+              tvdbId: details.tvdbId ?? null,
+              resolution: details.resolution ?? null,
+              addedAt: details.addedAt,
+              seasons: details.seasons,
+            } as DubbyLibraryItem);
+          } catch (e) {
+            this.log(
+              `Failed to fetch details for recent item ${item.id}`,
+              'error',
+              { errorMessage: e instanceof Error ? e.message : String(e) }
+            );
           }
-        } else {
-          // Full scan: paginate through library items
+        }
+
+        // Deduplicate by id
+        this.items = uniqWith(fullItems, (a, b) => a.id === b.id);
+        this.totalSize = this.items.length;
+
+        await this.loop(this.processItem.bind(this), { sessionId });
+      } else {
+        for (const library of this.libraries) {
+          this.currentLibrary = library;
+          this.log(`Processing library: ${library.name}`, 'info');
+
+          // Paginate through all items and collect
+          this.items = [];
           let offset = 0;
           const pageSize = 500;
           let hasMore = true;
@@ -107,25 +118,50 @@ class DubbyScanner
               pageSize
             );
 
-            for (const item of items) {
-              if (library.type === 'show') {
-                await this.processDubbyShow(item);
-              } else {
-                await this.processDubbyMovie(item);
-              }
-            }
-
+            this.items.push(...items);
             offset += items.length;
             hasMore = items.length === pageSize;
           }
+
+          this.totalSize = this.items.length;
+          await this.loop(this.processItem.bind(this), { sessionId });
         }
       }
 
-      this.log('Dubby scan complete', 'info');
+      this.log(
+        this.isRecentOnly
+          ? 'Recently Added Scan Complete'
+          : 'Full Scan Complete',
+        'info'
+      );
     } catch (e) {
-      this.log(`Dubby scan failed: ${e.message}`, 'error');
+      this.log(
+        `Dubby scan failed: ${e instanceof Error ? e.message : String(e)}`,
+        'error'
+      );
     } finally {
-      this.running = false;
+      this.endRun(sessionId);
+    }
+  }
+
+  private async processItem(item: DubbyLibraryItem): Promise<void> {
+    try {
+      if (!item.tmdbId) return;
+
+      // Determine type from item seasons presence or library type
+      const isShow = item.seasons && item.seasons.length > 0;
+
+      if (isShow) {
+        await this.processDubbyShow(item);
+      } else {
+        await this.processDubbyMovie(item);
+      }
+    } catch (e) {
+      this.log(
+        `Failed to process Dubby item ${item.id} (${item.title})`,
+        'error',
+        { errorMessage: e instanceof Error ? e.message : String(e) }
+      );
     }
   }
 
@@ -165,10 +201,6 @@ class DubbyScanner
       dubbyMediaId: item.id,
       title: item.title,
     });
-  }
-
-  public cancel(): void {
-    this.running = false;
   }
 }
 

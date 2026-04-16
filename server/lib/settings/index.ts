@@ -680,7 +680,7 @@ class Settings {
   }
 
   set dubby(data: DubbySettings) {
-    this.data.dubby = data;
+    this.data.dubby = mergeSettings(this.data.dubby, data);
   }
 
   get tautulli(): TautulliSettings {
